@@ -32,6 +32,7 @@
   .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .row + .row { margin-top: 8px; }
   .lbl { color: var(--muted); font-size: 12px; width: 56px; }
+  .hint { color: var(--muted); font-size: 11px; font-style: italic; }
   button { font: inherit; font-size: 13px; color: var(--ink); background: transparent; border: 1px solid var(--line);
     border-radius: 8px; padding: 6px 10px; cursor: pointer; }
   button:hover { border-color: var(--accent); }
@@ -94,6 +95,11 @@
     <button id="roomsBtn">Rooms</button>
     <button id="servicesBtn">Services</button>
     <button id="measureBtn">Measurements</button>
+  </div>
+  <div class="row">
+    <span class="lbl">Ideas</span>
+    <button id="ideaTerrace" title="Not in the drawings">Terrace +1 m</button>
+    <span class="hint">not in the drawings</span>
   </div>
 </div>
 
@@ -226,15 +232,17 @@ diffuseColor.rgb = col;`);
 }
 // hot-tub opening in the terrace (AR-4.03): the tub's outer square, flush with the east wall line
 const TUB = { x0: 22.26, x1: 24.46, z0: 11.52, z1: 13.72 };   // 2.20 × 2.20 m, flush with the east wall, 0.72 m off the south wall
+const holeU = { value: new THREE.Vector4(TUB.x0, TUB.z0, TUB.x1, TUB.z1) };   // moves with the tub (Ideas)
 function holeIn(m) {
   const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
   m.onBeforeCompile = (sh, r) => {
     if (prev) prev(sh, r);
+    sh.uniforms.uTub = holeU;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHolePos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHolePos;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHolePos; uniform vec4 uTub;')
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-if (vHolePos.x > ${TUB.x0.toFixed(2)} && vHolePos.x < ${TUB.x1.toFixed(2)} && vHolePos.z > ${TUB.z0.toFixed(2)} && vHolePos.z < ${TUB.z1.toFixed(2)} && vHolePos.y < 0.6) discard;`);
+if (vHolePos.x > uTub.x && vHolePos.x < uTub.z && vHolePos.z > uTub.y && vHolePos.z < uTub.w && vHolePos.y < 0.6) discard;`);
   };
   m.customProgramCacheKey = () => 'hole' + (prevKey ? prevKey.call(m) : '');
   return m;
@@ -322,6 +330,7 @@ function pushUV(uv, A, nn, rot) {
   if (rot) uv.push(v, u); else uv.push(u, v);
 }
 const V3 = [a, b, c];
+const cen = new THREE.Vector3();
 const slotOf = new Uint8Array(NT).fill(255);
 const glassPos = [];
 const doorTris = [];
@@ -348,14 +357,25 @@ for (let t = 0; t < NT; t++) {
   }
   slotOf[t] = SLOTS.indexOf(s);
 }
+// The January model has the living room the other way round. TP AR-1.01 (10.09.2026): the Axis stove stands at the
+// east end by the WC wall and the L-sofa turns down the west side, so mirror the room's furniture, stove and flue.
+const LIVING = { x0: 9.07, x1: 13.85, z0: 3.35, z1: 9.2 }, MIRROR_X = 9.06 + 13.86;
+const MIRROR = new Uint8Array(NT);
+for (let t = 0; t < NT; t++) {
+  triAt(t, V3); cen.copy(a).add(b).add(c).divideScalar(3);
+  const fx = Math.max(a.x, b.x, c.x) - Math.min(a.x, b.x, c.x), fz = Math.max(a.z, b.z, c.z) - Math.min(a.z, b.z, c.z);
+  if (FURN[t] && inBox(cen, LIVING.x0, LIVING.z0, LIVING.x1, LIVING.z1, 0.25, 3.05)) MIRROR[t] = 1;
+  else if (inBox(cen, 9.06, 4.9, 10.2, 6.1, 2.9, 9) && fx < 0.3 && fz < 0.3) MIRROR[t] = 1;      // flue up through the roof
+}
 const pos = [], uv = [], fm = [], geo = new THREE.BufferGeometry();
-const cen = new THREE.Vector3();
 SLOTS.forEach((name, si) => {
   const start = pos.length / 3;
   for (let t = 0; t < NT; t++) {
     if (slotOf[t] !== si) continue;
-    triAt(t, V3); const nn = normalOf(a, b, c).clone();
+    triAt(t, V3);
     const f = name === 'furn' ? furnId(FURN[t], cen.copy(a).add(b).add(c).divideScalar(3)) : 0;
+    if (MIRROR[t]) for (const p of V3) p.x = MIRROR_X - p.x;
+    const nn = normalOf(a, b, c).clone();
     for (const p of V3) { pos.push(p.x, p.y, p.z); pushUV(uv, p, nn, name === 'clad'); fm.push(f); }
   }
   geo.addGroup(start, pos.length / 3 - start, si);
@@ -520,26 +540,33 @@ for (const [name, sub, x, fy, z] of ROOM_LABELS) {
 
 // ---------- terrace per AR-4.03 (09.10.2026): the January model's deck stops 3.00 m from the south wall,
 // the drawing has 3.37 m; add the missing strip (single edge board, no apron to the ground) and the two steps.
+// The "Terrace +1 m" idea (not in the drawings) pushes the edge, the front step and the tub 1 m further out.
 const walkables = [];
-{
-  const deckTop = 0.3, boards = M.deck;
-  const slab = (x0, x1, z0, z1, top, edge) => {
-    const sh = new THREE.Shape([[x0, -z0], [x1, -z0], [x1, -z1], [x0, -z1]].map(([a, b]) => new THREE.Vector2(a, b)));
-    const g = new THREE.Mesh(new THREE.ShapeGeometry(sh), boards); g.rotation.x = -Math.PI / 2; g.position.y = top;
-    g.receiveShadow = true; scene.add(g); walkables.push(g);
-    const side = new THREE.MeshStandardMaterial({ color: '#a39480', roughness: 0.9 });
-    const fascia = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, edge, 0.03), side);
-    fascia.position.set((x0 + x1) / 2, top - edge / 2, z1 - 0.015); fascia.castShadow = true; scene.add(fascia);
-  };
-  slab(4.29, 25.69, 13.79, 14.17, deckTop, 0.14);            // south edge strip
-  slab(9.34, 13.65, 14.17, 14.54, 0.15, 0.15);               // front step in front of the living-room terrace
-  slab(3.96, 4.29, 10.81, 12.06, 0.15, 0.15);                // west step by the kitchen corner
+const terrace = new THREE.Group(); scene.add(terrace);
+const PLAN_EDGE = 14.17;                       // terrace south edge per AR-4.03 (3.37 m from the wall)
+const IDEAS = { terracePlus1: false };
+let terraceEdge = PLAN_EDGE;
+const fasciaMat = new THREE.MeshStandardMaterial({ color: '#a39480', roughness: 0.9 });
+function slab(x0, x1, z0, z1, top, edge) {
+  const sh = new THREE.Shape([[x0, -z0], [x1, -z0], [x1, -z1], [x0, -z1]].map(([a, b]) => new THREE.Vector2(a, b)));
+  const g = new THREE.Mesh(new THREE.ShapeGeometry(sh), M.deck); g.rotation.x = -Math.PI / 2; g.position.y = top;
+  g.receiveShadow = true; terrace.add(g); walkables.push(g);
+  const fascia = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, edge, 0.03), fasciaMat);
+  fascia.position.set((x0 + x1) / 2, top - edge / 2, z1 - 0.015); fascia.castShadow = true; terrace.add(fascia);
 }
+function buildTerrace() {
+  terrace.children.forEach(o => o.geometry.dispose()); terrace.clear(); walkables.length = 0;
+  slab(4.29, 25.69, 13.79, terraceEdge, 0.3, 0.14);                     // south edge strip
+  slab(9.34, 13.65, terraceEdge, terraceEdge + 0.37, 0.15, 0.15);       // front step in front of the living-room terrace
+  slab(3.96, 4.29, 10.81, 12.06, 0.15, 0.15);                           // west step by the kitchen corner
+}
+buildTerrace();
 
 // ---------- outdoor hot tub (AR-4.03, 09.10.2026): el. heated, SE corner of the terrace ----------
 // Per the AR-4.03 sections: ~1.0 m tall, sunk ~0.5 m through the terrace onto a concrete pad, so ~0.49 m stands
 // above the boards: 0.41 m of vertical timber slats + an 8 cm rim; water ~0.18 m below the rim.
 const deckY = (hitsHouse((TUB.x0 + TUB.x1) / 2, (TUB.z0 + TUB.z1) / 2, 2)?.point.y) ?? 0.3;
+const tubGroup = new THREE.Group();
 {
   const W = TUB.x1 - TUB.x0, D = TUB.z1 - TUB.z0, cx = (TUB.x0 + TUB.x1) / 2, cz = (TUB.z0 + TUB.z1) / 2, R = Math.min(W, D) / 2 - 0.12;
   const SLATS = 0.41, RIM = 0.08, TOP = SLATS + RIM;
@@ -547,7 +574,7 @@ const deckY = (hitsHouse((TUB.x0 + TUB.x1) / 2, (TUB.z0 + TUB.z1) / 2, 2)?.point
   const slatTex = tex('fir').clone(); slatTex.needsUpdate = true;
   slatTex.rotation = Math.PI / 2; slatTex.repeat.set(SLATS / TEX.fir.w, W / TEX.fir.h);
   const slat = new THREE.MeshStandardMaterial({ map: slatTex, color: '#b9a58c', roughness: 0.9 });
-  const g = new THREE.Group(); g.position.set(cx, deckY, cz);
+  const g = tubGroup; g.position.set(cx, deckY, cz);
   const body = new THREE.Mesh(new THREE.BoxGeometry(W, SLATS + 0.5, D), [slat, slat, shell, shell, slat, slat]);
   body.position.y = (SLATS - 0.5) / 2; g.add(body);
   // rim: square plate with the round basin opening
@@ -567,37 +594,49 @@ const deckY = (hitsHouse((TUB.x0 + TUB.x1) / 2, (TUB.z0 + TUB.z1) / 2, 2)?.point
 // Lines sit on the model; labels give the drawing values (the model is the January sketch, within a few cm).
 const dims = new THREE.Group(); dims.visible = false; scene.add(dims);
 const TUB_CENTER = new THREE.Vector3((TUB.x0 + TUB.x1) / 2, 0.5, (TUB.z0 + TUB.z1) / 2);
-{
-  const ink = new THREE.LineBasicMaterial({ color: '#c0392b', depthTest: false });
-  const dim = (a, b, text, tick = 0.18, detail = false) => {
-    const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), d = B.clone().sub(A).normalize();
-    // ticks perpendicular to the line, in the horizontal plane (or along x for vertical lines)
-    const side = Math.abs(d.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(-d.z, 0, d.x);
-    const pts = [A, B];
-    for (const P of [A, B]) pts.push(P.clone().addScaledVector(side, tick), P.clone().addScaledVector(side, -tick));
-    const g = new THREE.BufferGeometry().setFromPoints([pts[0], pts[1], pts[2], pts[3], pts[4], pts[5]]);
-    g.setIndex([0, 1, 2, 3, 4, 5]);
-    const l = new THREE.LineSegments(g, ink); l.renderOrder = 9; dims.add(l);
-    const lb = label([text], '#c0392b'); lb.position.copy(A).lerp(B, 0.5); lb.scale.multiplyScalar(0.8); dims.add(lb);
-    if (detail) l.userData.detail = lb.userData.detail = true;
-  };
+const ink = new THREE.LineBasicMaterial({ color: '#c0392b', depthTest: false });
+const dim = (a, b, text, tick = 0.18, detail = false) => {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), d = B.clone().sub(A).normalize();
+  // ticks perpendicular to the line, in the horizontal plane (or along x for vertical lines)
+  const side = Math.abs(d.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(-d.z, 0, d.x);
+  const pts = [A, B];
+  for (const P of [A, B]) pts.push(P.clone().addScaledVector(side, tick), P.clone().addScaledVector(side, -tick));
+  const g = new THREE.BufferGeometry().setFromPoints(pts);
+  g.setIndex([0, 1, 2, 3, 4, 5]);
+  const l = new THREE.LineSegments(g, ink); l.renderOrder = 9; dims.add(l);
+  const lb = label([text], '#c0392b'); lb.position.copy(A).lerp(B, 0.5); lb.scale.multiplyScalar(0.8); dims.add(lb);
+  if (detail) l.userData.detail = lb.userData.detail = true;
+};
+const m2 = v => v.toFixed(2).replace('.', ',') + ' m';
+function buildDims() {
+  dims.children.forEach(o => { o.geometry?.dispose(); o.material?.map?.dispose(); }); dims.clear();
+  const extra = terraceEdge - PLAN_EDGE, idea = extra > 0 ? ' (idea)' : '';
   const T0 = TUB, top = deckY + 0.49, tx = (T0.x0 + T0.x1) / 2, tz = (T0.z0 + T0.z1) / 2;
   // house
   dim([4.26, 0.05, 1.7], [24.46, 0.05, 1.7], 'House 20,12 m');
   dim([2.9, 0.05, 3.0], [2.9, 0.05, 10.8], 'House 7,72 m');
   dim([26.4, 0, 6.9], [26.4, 7.63, 6.9], 'Height 7,7 m');
-  // terrace
-  dim([6.2, 0.36, 10.8], [6.2, 0.36, 14.17], 'Terrace 3,37 m');
+  // terrace (drawing values; the idea adds its metre)
+  dim([6.2, 0.36, 10.8], [6.2, 0.36, terraceEdge], 'Terrace ' + m2(3.37 + extra) + idea);
   dim([24.46, 0.36, 7.0], [25.69, 0.36, 7.0], '1,24 m');
-  dim([4.29, 0.36, 14.75], [25.69, 0.36, 14.75], 'Terrace 21,33 m');
-  // tub: the gaps you asked about + its size
-  dim([tx, 0.36, 10.8], [tx, 0.36, T0.z0], 'House → tub 0,72 m', 0.12, true);
-  dim([tx, 0.36, T0.z1], [tx, 0.36, 14.17], 'Tub → edge 0,45 m', 0.12, true);
+  dim([4.29, 0.36, terraceEdge + 0.58], [25.69, 0.36, terraceEdge + 0.58], 'Terrace 21,33 m');
+  // tub: gaps + size
+  dim([tx, 0.36, 10.8], [tx, 0.36, T0.z0], 'House → tub ' + m2(0.72 + extra) + idea, 0.12, true);
+  dim([tx, 0.36, T0.z1], [tx, 0.36, terraceEdge], 'Tub → edge 0,45 m', 0.12, true);
   dim([24.46, 0.36, tz], [25.69, 0.36, tz], 'Tub → edge 1,24 m', 0.12, true);
   dim([T0.x0, top + 0.02, T0.z0 - 0.08], [T0.x1, top + 0.02, T0.z0 - 0.08], 'Tub 2,20 m', 0.1, true);
   dim([T0.x0 - 0.08, top + 0.02, T0.z0], [T0.x0 - 0.08, top + 0.02, T0.z1], 'Tub 2,20 m', 0.1, true);
   dim([tx - 0.975, top + 0.03, tz], [tx + 0.975, top + 0.03, tz], 'Ø 1,95 m', 0.08, true);
   dim([T0.x1 + 0.12, deckY, T0.z1], [T0.x1 + 0.12, top, T0.z1], '0,48 m above deck', 0.08, true);
+}
+buildDims();
+function applyIdeas() {
+  const extra = IDEAS.terracePlus1 ? 1 : 0;
+  terraceEdge = PLAN_EDGE + extra;
+  TUB.z0 = 11.52 + extra; TUB.z1 = 13.72 + extra;           // the tub keeps 0.45 m to the terrace edge
+  holeU.value.set(TUB.x0, TUB.z0, TUB.x1, TUB.z1);
+  tubGroup.position.z = TUB_CENTER.z = (TUB.z0 + TUB.z1) / 2;
+  buildTerrace(); buildDims();
 }
 
 // ---------- doors ----------
@@ -767,6 +806,7 @@ $('#toU').onclick = () => { lift = 0; standY = floorBelow(camera.position.x, FLO
 $('#doorsBtn').onclick = e => { allOpen = !allOpen; e.target.classList.toggle('on', allOpen); };
 $('#roomsBtn').onclick = e => { roomLabels.visible = !roomLabels.visible; e.target.classList.toggle('on', roomLabels.visible); };
 $('#servicesBtn').onclick = e => { services.visible = !services.visible; e.target.classList.toggle('on', services.visible); };
+$('#ideaTerrace').onclick = e => { IDEAS.terracePlus1 = !IDEAS.terracePlus1; e.target.classList.toggle('on', IDEAS.terracePlus1); applyIdeas(); };
 $('#measureBtn').onclick = e => { dims.visible = !dims.visible; e.target.classList.toggle('on', dims.visible); };
 $('#ghost').onclick = e => { ghost = !ghost; e.target.classList.toggle('on', ghost); };
 help.innerHTML = HELPS.orbit;
