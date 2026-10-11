@@ -41,16 +41,6 @@
   #pad { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); right: 16px; padding: 8px; display: none; grid-template-columns: repeat(3, 48px); gap: 6px; }
   #pad button { height: 48px; font-size: 18px; padding: 0; user-select: none; -webkit-user-select: none; }
   body.walk #pad { display: grid; }
-  #info { top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(380px, calc(100% - 32px));
-    max-height: calc(100% - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow: auto; padding: 14px 16px; }
-  #info h2 { margin: 0; font-size: 16px; font-weight: 650; }
-  #info h3 { margin: 14px 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-  #info dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
-  #info dt { color: var(--muted); }
-  #info dd { margin: 0; min-width: 0; font-variant-numeric: tabular-nums; }
-  #info .muted { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
-  .infohead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  #infoClose { border: none; padding: 4px 8px; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; color: var(--muted); }
   .titlerow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   #menuBtn { display: none; border: none; font-size: 18px; padding: 2px 8px; }
@@ -103,7 +93,7 @@
     <button id="doorsBtn">Open all doors</button>
     <button id="roomsBtn">Rooms</button>
     <button id="servicesBtn">Services</button>
-    <button id="infoBtn">Project</button>
+    <button id="measureBtn">Measurements</button>
   </div>
 </div>
 
@@ -116,38 +106,7 @@
 
 <div id="joy" aria-label="Walk joystick"><div id="knob"></div></div>
 
-<div id="info" class="panel" hidden>
-  <div class="infohead"><h2>Nõmme tee 12</h2><button id="infoClose" aria-label="Close">✕</button></div>
-  <p class="muted">Kloogaranna küla, Lääne-Harju vald · katastritunnus 29501:007:1840</p>
-  <h3>Building</h3>
-  <dl>
-    <dt>Use</dt><dd>Üksikelamu (11101), 2 korrust, CLT</dd>
-    <dt>Plot</dt><dd>1 753 m²</dd>
-    <dt>Net / gross area</dt><dd>164,1 m² / 259,8 m²</dd>
-    <dt>Footprint</dt><dd>163,6 m² (AS-1.02) · 170 m² (seletuskiri)</dd>
-    <dt>Size</dt><dd>20,1 × 7,7 m, height 7,7 m</dd>
-    <dt>±0,00</dt><dd>abs 6,00 (AS-1.02) · abs 5,90 (seletuskiri) — check</dd>
-    <dt>U-values</dt><dd>roof 0,10 · outer wall 0,16 W/m²K</dd>
-    <dt>Roof</dt><dd>Standing seam, Ruukki RR21 light grey · Velux roof windows</dd>
-  </dl>
-  <h3>Team</h3>
-  <dl>
-    <dt>Architect</dt><dd>ÖÖ-ÖÖ Arhitektid, Ülo-Tarmo Stöör</dd>
-    <dt>Interior</dt><dd>Mari-Liis Süld</dd>
-    <dt>Main contractor</dt><dd>Finnlog (CLT house)</dd>
-    <dt>Foundation</dt><dd>MPV Ehitusgrupp</dd>
-    <dt>Owner's supervision</dt><dd>4Project, Eno Pappel</dd>
-    <dt>Ground source heat</dt><dd>Puurvesi, 2 × 90 m boreholes (positions not drawn yet)</dd>
-    <dt>Windows</dt><dd>Lasita</dd>
-  </dl>
-  <h3>Schedule (Finnlog, 05.10.2026)</h3>
-  <dl>
-    <dt>CLT erection</dt><dd>26.10.2026</dd>
-    <dt>Floor pour</dt><dd>07.–11.12.2026</dd>
-    <dt>Completion</dt><dd>18.06.2027</dd>
-  </dl>
-  <p class="muted">Sources: EP AS-1.02 and seletuskiri (22.06.2026), SA tööprojekt (26.06.2026), AR-4.03 (09.10.2026), contracts and offers in the project folder.</p>
-</div>
+
 
 <script type="importmap">
 { "imports": {
@@ -604,6 +563,43 @@ const deckY = (hitsHouse((TUB.x0 + TUB.x1) / 2, (TUB.z0 + TUB.z1) / 2, 2)?.point
   scene.add(g);
 }
 
+// ---------- measurements: house (EP 22.06.2026), terrace and tub (AR-4.03, 09.10.2026) ----------
+// Lines sit on the model; labels give the drawing values (the model is the January sketch, within a few cm).
+const dims = new THREE.Group(); dims.visible = false; scene.add(dims);
+const TUB_CENTER = new THREE.Vector3((TUB.x0 + TUB.x1) / 2, 0.5, (TUB.z0 + TUB.z1) / 2);
+{
+  const ink = new THREE.LineBasicMaterial({ color: '#c0392b', depthTest: false });
+  const dim = (a, b, text, tick = 0.18, detail = false) => {
+    const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), d = B.clone().sub(A).normalize();
+    // ticks perpendicular to the line, in the horizontal plane (or along x for vertical lines)
+    const side = Math.abs(d.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(-d.z, 0, d.x);
+    const pts = [A, B];
+    for (const P of [A, B]) pts.push(P.clone().addScaledVector(side, tick), P.clone().addScaledVector(side, -tick));
+    const g = new THREE.BufferGeometry().setFromPoints([pts[0], pts[1], pts[2], pts[3], pts[4], pts[5]]);
+    g.setIndex([0, 1, 2, 3, 4, 5]);
+    const l = new THREE.LineSegments(g, ink); l.renderOrder = 9; dims.add(l);
+    const lb = label([text], '#c0392b'); lb.position.copy(A).lerp(B, 0.5); lb.scale.multiplyScalar(0.8); dims.add(lb);
+    if (detail) l.userData.detail = lb.userData.detail = true;
+  };
+  const T0 = TUB, top = deckY + 0.49, tx = (T0.x0 + T0.x1) / 2, tz = (T0.z0 + T0.z1) / 2;
+  // house
+  dim([4.26, 0.05, 1.7], [24.46, 0.05, 1.7], 'House 20,12 m');
+  dim([2.9, 0.05, 3.0], [2.9, 0.05, 10.8], 'House 7,72 m');
+  dim([26.4, 0, 6.9], [26.4, 7.63, 6.9], 'Height 7,7 m');
+  // terrace
+  dim([6.2, 0.36, 10.8], [6.2, 0.36, 14.17], 'Terrace 3,37 m');
+  dim([24.46, 0.36, 7.0], [25.69, 0.36, 7.0], '1,24 m');
+  dim([4.29, 0.36, 14.75], [25.69, 0.36, 14.75], 'Terrace 21,33 m');
+  // tub: the gaps you asked about + its size
+  dim([tx, 0.36, 10.8], [tx, 0.36, T0.z0], 'House → tub 0,72 m', 0.12, true);
+  dim([tx, 0.36, T0.z1], [tx, 0.36, 14.17], 'Tub → edge 0,45 m', 0.12, true);
+  dim([24.46, 0.36, tz], [25.69, 0.36, tz], 'Tub → edge 1,24 m', 0.12, true);
+  dim([T0.x0, top + 0.02, T0.z0 - 0.08], [T0.x1, top + 0.02, T0.z0 - 0.08], 'Tub 2,20 m', 0.1, true);
+  dim([T0.x0 - 0.08, top + 0.02, T0.z0], [T0.x0 - 0.08, top + 0.02, T0.z1], 'Tub 2,20 m', 0.1, true);
+  dim([tx - 0.975, top + 0.03, tz], [tx + 0.975, top + 0.03, tz], 'Ø 1,95 m', 0.08, true);
+  dim([T0.x1 + 0.12, deckY, T0.z1], [T0.x1 + 0.12, top, T0.z1], '0,48 m above deck', 0.08, true);
+}
+
 // ---------- doors ----------
 // Each door leaf becomes its own mesh on a pivot so it can swing (hinged) or slide (pocket door).
 const doorRay = new THREE.Raycaster(); doorRay.firstHitOnly = true;
@@ -771,8 +767,7 @@ $('#toU').onclick = () => { lift = 0; standY = floorBelow(camera.position.x, FLO
 $('#doorsBtn').onclick = e => { allOpen = !allOpen; e.target.classList.toggle('on', allOpen); };
 $('#roomsBtn').onclick = e => { roomLabels.visible = !roomLabels.visible; e.target.classList.toggle('on', roomLabels.visible); };
 $('#servicesBtn').onclick = e => { services.visible = !services.visible; e.target.classList.toggle('on', services.visible); };
-$('#infoBtn').onclick = e => { const el = $('#info'); el.hidden = !el.hidden; e.target.classList.toggle('on', !el.hidden); };
-$('#infoClose').onclick = () => { $('#info').hidden = true; $('#infoBtn').classList.remove('on'); };
+$('#measureBtn').onclick = e => { dims.visible = !dims.visible; e.target.classList.toggle('on', dims.visible); };
 $('#ghost').onclick = e => { ghost = !ghost; e.target.classList.toggle('on', ghost); };
 help.innerHTML = HELPS.orbit;
 
@@ -944,6 +939,10 @@ function loop() {
   const dt = Math.min(clock.getDelta(), 0.05);
   if (mode === 'orbit') orbit.update(); else step(dt);
   updateDoors(dt);
+  if (dims.visible) {   // tub detail dimensions only when you are close enough to read them
+    const near = camera.position.distanceTo(TUB_CENTER) < 14;
+    dims.children.forEach(o => { if (o.userData.detail) o.visible = near; });
+  }
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
