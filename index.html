@@ -98,7 +98,13 @@
   </div>
   <div class="row">
     <span class="lbl">Ideas</span>
-    <button id="ideaTerrace" title="Not in the drawings">Terrace +1 m</button>
+    <button data-tub="T" class="on" title="Tarmo's sketch 13.10.2026: in front of the solid stair wall, 2.155 m off the house, 3.65 m wide deck bump-out">Tub: Tarmo 13.10</button>
+    <button data-tub="T0" title="Tarmo's sketch 13.10.2026, earlier position: in front of the solid stair wall, 0.72 m off the house">Tarmo before</button>
+    <button data-tub="plan" title="AR-4.03 PDF, 09.10.2026: SE corner">AR-4.03 corner</button>
+    <button data-tub="plus1" title="Not in the drawings">Corner +1 m</button>
+    <button data-tub="A" title="Not in the drawings: local bump-out, tub 1.9 m off the wall">A: pulled out</button>
+    <button data-tub="B" title="Not in the drawings: tub past the SE corner, by the east gable">B: past the corner</button>
+    <button data-tub="C" title="Not in the drawings: own deck in the garden among the pines">C: garden</button>
     <span class="hint">not in the drawings</span>
   </div>
 </div>
@@ -544,21 +550,43 @@ for (const [name, sub, x, fy, z] of ROOM_LABELS) {
 const walkables = [];
 const terrace = new THREE.Group(); scene.add(terrace);
 const PLAN_EDGE = 14.17;                       // terrace south edge per AR-4.03 (3.37 m from the wall)
-const IDEAS = { terracePlus1: false };
+// Tub placement ideas (not in the drawings, 13.10.2026). tub: the tub's outer square + the deck top it sits on;
+// edge: the main terrace's south edge; extra: added deck pieces [x0, x1, z0, z1, top, edge, sides].
+const TUB_IDEAS = {
+  plan:  { tub: [22.26, 24.46, 11.52, 13.72], y: 0.3,  edge: PLAN_EDGE,     extra: [] },
+  plus1: { tub: [22.26, 24.46, 12.52, 14.72], y: 0.3,  edge: PLAN_EDGE + 1, extra: [] },
+  // A: keep the SE corner, local 1.2 m bump-out over the last ~3.8 m, tub 1.9 m off the wall (clear of the 1.0 m eave)
+  A:     { tub: [22.26, 24.46, 12.70, 14.90], y: 0.3,  edge: PLAN_EDGE,     extra: [[21.86, 25.69, 14.17, 15.37, 0.3, 0.14, 'SWE']] },
+  // B: past the SE corner, west side clear of the 0.4 m gable overhang, north side clear of the south eave
+  B:     { tub: [24.86, 27.06, 11.85, 14.05], y: 0.3,  edge: PLAN_EDGE,     extra: [[25.69, 27.46, 10.8, 14.45, 0.3, 0.14, 'SEN'], [24.4, 25.69, 14.17, 14.45, 0.3, 0.14, 'S']] },
+  // C: own low deck in the garden between the pines, short boardwalk from the terrace corner
+  C:     { tub: [25.5, 27.7, 15.95, 18.15], y: 0.18, edge: PLAN_EDGE,     extra: [[25.1, 28.1, 15.55, 18.55, 0.18, 0.18, 'SWEN'], [25.3, 26.5, 14.17, 15.55, 0.12, 0.12, 'WE']] },
+  // Tarmo's sketch (email 13.10.2026): tub in front of the solid wall between windows A-3 (TV room) and A-4 (bedroom),
+  // 2.155 m off the south wall; bump-out 0.725 + 2.20 + 0.725 = 3.65 m wide, 0.725 m beyond the tub (5.08 m from the wall)
+  T0:    { tub: [18.32, 20.52, 11.52, 13.72], y: 0.3, edge: PLAN_EDGE, extra: [] },   // his "today": same x, 0.72 m off the wall
+  T:     { tub: [18.32, 20.52, 12.955, 15.155], y: 0.3, edge: PLAN_EDGE,     extra: [[17.595, 21.245, 14.17, 15.88, 0.3, 0.14, 'SWE']] },
+};
+const IDEAS = { tub: 'plan' };
 let terraceEdge = PLAN_EDGE;
 const fasciaMat = new THREE.MeshStandardMaterial({ color: '#a39480', roughness: 0.9 });
-function slab(x0, x1, z0, z1, top, edge) {
+function slab(x0, x1, z0, z1, top, edge, sides = 'S') {
   const sh = new THREE.Shape([[x0, -z0], [x1, -z0], [x1, -z1], [x0, -z1]].map(([a, b]) => new THREE.Vector2(a, b)));
   const g = new THREE.Mesh(new THREE.ShapeGeometry(sh), M.deck); g.rotation.x = -Math.PI / 2; g.position.y = top;
   g.receiveShadow = true; terrace.add(g); walkables.push(g);
-  const fascia = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, edge, 0.03), fasciaMat);
-  fascia.position.set((x0 + x1) / 2, top - edge / 2, z1 - 0.015); fascia.castShadow = true; terrace.add(fascia);
+  for (const sd of sides) {                       // edge boards: S/N run along x, E/W along z
+    const ew = sd === 'E' || sd === 'W';
+    const fascia = new THREE.Mesh(new THREE.BoxGeometry(ew ? 0.03 : x1 - x0, edge, ew ? z1 - z0 : 0.03), fasciaMat);
+    fascia.position.set(sd === 'E' ? x1 - 0.015 : sd === 'W' ? x0 + 0.015 : (x0 + x1) / 2, top - edge / 2,
+      sd === 'S' ? z1 - 0.015 : sd === 'N' ? z0 + 0.015 : (z0 + z1) / 2);
+    fascia.castShadow = true; terrace.add(fascia);
+  }
 }
 function buildTerrace() {
   terrace.children.forEach(o => o.geometry.dispose()); terrace.clear(); walkables.length = 0;
   slab(4.29, 25.69, 13.79, terraceEdge, 0.3, 0.14);                     // south edge strip
   slab(9.34, 13.65, terraceEdge, terraceEdge + 0.37, 0.15, 0.15);       // front step in front of the living-room terrace
   slab(3.96, 4.29, 10.81, 12.06, 0.15, 0.15);                           // west step by the kitchen corner
+  for (const e of TUB_IDEAS[IDEAS.tub].extra) slab(...e);
 }
 buildTerrace();
 
@@ -610,8 +638,8 @@ const dim = (a, b, text, tick = 0.18, detail = false) => {
 const m2 = v => v.toFixed(2).replace('.', ',') + ' m';
 function buildDims() {
   dims.children.forEach(o => { o.geometry?.dispose(); o.material?.map?.dispose(); }); dims.clear();
-  const extra = terraceEdge - PLAN_EDGE, idea = extra > 0 ? ' (idea)' : '';
-  const T0 = TUB, top = deckY + 0.49, tx = (T0.x0 + T0.x1) / 2, tz = (T0.z0 + T0.z1) / 2;
+  const extra = terraceEdge - PLAN_EDGE, idea = IDEAS.tub !== 'plan' ? ' (idea)' : '';
+  const T0 = TUB, ty = tubGroup.position.y, top = ty + 0.49, tx = (T0.x0 + T0.x1) / 2, tz = (T0.z0 + T0.z1) / 2;
   // house
   dim([4.26, 0.05, 1.7], [24.46, 0.05, 1.7], 'House 20,12 m');
   dim([2.9, 0.05, 3.0], [2.9, 0.05, 10.8], 'House 7,72 m');
@@ -621,21 +649,24 @@ function buildDims() {
   dim([24.46, 0.36, 7.0], [25.69, 0.36, 7.0], '1,24 m');
   dim([4.29, 0.36, terraceEdge + 0.58], [25.69, 0.36, terraceEdge + 0.58], 'Terrace 21,33 m');
   // tub: gaps + size
-  dim([tx, 0.36, 10.8], [tx, 0.36, T0.z0], 'House → tub ' + m2(0.72 + extra) + idea, 0.12, true);
-  dim([tx, 0.36, T0.z1], [tx, 0.36, terraceEdge], 'Tub → edge 0,45 m', 0.12, true);
-  dim([24.46, 0.36, tz], [25.69, 0.36, tz], 'Tub → edge 1,24 m', 0.12, true);
+  dim([tx, 0.36, 10.8], [tx, 0.36, T0.z0], 'House line → tub ' + m2(T0.z0 - 10.8) + idea, 0.12, true);
+  if (T0.x0 >= 24.46) dim([24.46, 0.36, tz], [T0.x0, 0.36, tz], 'Gable → tub ' + m2(T0.x0 - 24.46) + idea, 0.12, true);
+  if (IDEAS.tub === 'plan' || IDEAS.tub === 'plus1') {
+    dim([tx, 0.36, T0.z1], [tx, 0.36, terraceEdge], 'Tub → edge 0,45 m', 0.12, true);
+    dim([24.46, 0.36, tz], [25.69, 0.36, tz], 'Tub → edge 1,24 m', 0.12, true);
+  }
   dim([T0.x0, top + 0.02, T0.z0 - 0.08], [T0.x1, top + 0.02, T0.z0 - 0.08], 'Tub 2,20 m', 0.1, true);
   dim([T0.x0 - 0.08, top + 0.02, T0.z0], [T0.x0 - 0.08, top + 0.02, T0.z1], 'Tub 2,20 m', 0.1, true);
   dim([tx - 0.975, top + 0.03, tz], [tx + 0.975, top + 0.03, tz], 'Ø 1,95 m', 0.08, true);
-  dim([T0.x1 + 0.12, deckY, T0.z1], [T0.x1 + 0.12, top, T0.z1], '0,48 m above deck', 0.08, true);
+  dim([T0.x1 + 0.12, ty, T0.z1], [T0.x1 + 0.12, top, T0.z1], '0,48 m above deck', 0.08, true);
 }
 buildDims();
 function applyIdeas() {
-  const extra = IDEAS.terracePlus1 ? 1 : 0;
-  terraceEdge = PLAN_EDGE + extra;
-  TUB.z0 = 11.52 + extra; TUB.z1 = 13.72 + extra;           // the tub keeps 0.45 m to the terrace edge
+  const I = TUB_IDEAS[IDEAS.tub];
+  terraceEdge = I.edge;
+  [TUB.x0, TUB.x1, TUB.z0, TUB.z1] = I.tub;
   holeU.value.set(TUB.x0, TUB.z0, TUB.x1, TUB.z1);
-  tubGroup.position.z = TUB_CENTER.z = (TUB.z0 + TUB.z1) / 2;
+  tubGroup.position.set(TUB_CENTER.x = (TUB.x0 + TUB.x1) / 2, I.y === 0.3 ? deckY : I.y, TUB_CENTER.z = (TUB.z0 + TUB.z1) / 2);
   buildTerrace(); buildDims();
 }
 
@@ -806,7 +837,11 @@ $('#toU').onclick = () => { lift = 0; standY = floorBelow(camera.position.x, FLO
 $('#doorsBtn').onclick = e => { allOpen = !allOpen; e.target.classList.toggle('on', allOpen); };
 $('#roomsBtn').onclick = e => { roomLabels.visible = !roomLabels.visible; e.target.classList.toggle('on', roomLabels.visible); };
 $('#servicesBtn').onclick = e => { services.visible = !services.visible; e.target.classList.toggle('on', services.visible); };
-$('#ideaTerrace').onclick = e => { IDEAS.terracePlus1 = !IDEAS.terracePlus1; e.target.classList.toggle('on', IDEAS.terracePlus1); applyIdeas(); };
+function setTub(k) {
+  IDEAS.tub = k; applyIdeas();
+  document.querySelectorAll('[data-tub]').forEach(x => x.classList.toggle('on', x.dataset.tub === k));
+}
+document.querySelectorAll('[data-tub]').forEach(x => x.onclick = () => setTub(x.dataset.tub));
 $('#measureBtn').onclick = e => { dims.visible = !dims.visible; e.target.classList.toggle('on', dims.visible); };
 $('#ghost').onclick = e => { ghost = !ghost; e.target.classList.toggle('on', ghost); };
 help.innerHTML = HELPS.orbit;
@@ -987,6 +1022,7 @@ function loop() {
   requestAnimationFrame(loop);
 }
 loop();
+setTub('T');   // default tub position: Tarmo's 13.10 proposal
 const probe = (nx, ny) => {   // debug: what surface is under a screen point
   const r = new THREE.Raycaster(); r.setFromCamera(new THREE.Vector2(nx, ny), camera);
   return r.intersectObjects(scene.children, true).filter(h => h.object.isMesh).slice(0, 3).map(h => {
@@ -994,7 +1030,7 @@ const probe = (nx, ny) => {   // debug: what surface is under a screen point
     return [h.object === house ? SLOTS[g?.materialIndex] : (h.object.type + ':' + (h.object.material?.color?.getHexString?.() ?? '')), h.point.toArray().map(v => +v.toFixed(2)), h.object === house ? +geo.attributes.fmat.array[h.face.a].toFixed(0) : null];
   });
 };
-if (location.hash === '#debug') window.__dbg = { probe, drive, services, roomLabels, THREE, camera, orbit, enterWalk, enterOrbit, setCut, center, step, keys, yaw, applyLook, renderer, scene, doors, updateDoors };
+if (location.hash === '#debug') window.__dbg = { probe, drive, services, roomLabels, THREE, camera, orbit, enterWalk, enterOrbit, setCut, center, step, keys, yaw, applyLook, renderer, scene, doors, updateDoors, setTub, dims };
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   if (mode === 'walk') camera.fov = walkFov();
